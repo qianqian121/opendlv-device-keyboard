@@ -49,9 +49,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
     -Wunused-value -Wunused-variable -Wunused-result \
     -Wmissing-field-initializers -Wmissing-format-attribute -Wmissing-include-dirs -Wmissing-noreturn")
 # Threads are necessary for linking the resulting binaries as UDPReceiver is running in parallel.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-set(LIBRARIES Threads::Threads)
+find_package(X11)
+find_package(gainput)
+set(LIBRARIES Threads::Threads gainput X11)
 
 ################################################################################
 # Extract cluon-msc from cluon-complete.hpp.

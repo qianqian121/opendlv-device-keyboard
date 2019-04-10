@@ -34,6 +34,16 @@
 #include <string>
 #include <thread>
 
+#include <gainput/gainput.h>
+
+namespace {
+enum Button
+{
+  ButtonLeft,
+  ButtonQuit
+};
+}
+
 int32_t main(int32_t argc, char **argv) {
     int32_t retCode{0};
     auto commandlineArguments = cluon::getCommandlineArguments(argc, argv);
@@ -73,29 +83,17 @@ int32_t main(int32_t argc, char **argv) {
         float const STEERING_MAX_RATE = (commandlineArguments.count("steering_max_rate") != 0) ? std::stof(commandlineArguments["steering_max_rate"]) : -1.0f;
         float const TS = 1.0f / FREQ;
 
-        int gamepadDevice;
-        if ( -1 == (gamepadDevice = ::open(DEVICE.c_str(), O_RDONLY)) ) {
-            std::cerr << "[opendlv-device-gamepad]: Could not open device: " << DEVICE << ", error: " << errno << ": " << strerror(errno) << std::endl;
-        }
-        else {
-            int num_of_axes{0};
-            int num_of_buttons{0};
-            char name_of_gamepad[80];
+      {
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Woverflow"
-            ::ioctl(gamepadDevice, JSIOCGAXES, &num_of_axes);
-            ::ioctl(gamepadDevice, JSIOCGBUTTONS, &num_of_buttons);
-#pragma GCC diagnostic pop
-            if (::ioctl(gamepadDevice, JSIOCGNAME(80), &name_of_gamepad) < 0) {
-                ::strncpy(name_of_gamepad, "Unknown", sizeof(name_of_gamepad));
-            }
-            std::clog << "[opendlv-device-gamepad]: Found " << std::string(name_of_gamepad) << ", number of axes: " << num_of_axes << ", number of buttons: " << num_of_buttons << std::endl;
+        // Setup Gainput
+        gainput::InputManager manager;
+        const gainput::DeviceId keyboardId = manager.CreateDevice<gainput::InputDeviceKeyboard>();
 
-            // Use non blocking reading.
-            fcntl(gamepadDevice, F_SETFL, O_NONBLOCK);
+        gainput::InputMap map(manager);
+        map.MapBool(ButtonLeft, keyboardId, gainput::KeyA);
+        map.MapBool(ButtonQuit, keyboardId, gainput::KeyEscape);
 
-            std::mutex valuesMutex;
+        std::mutex valuesMutex;
             float acceleration{0};
             float steering{0};
             float targetSteering{0};
@@ -120,98 +118,27 @@ int32_t main(int32_t argc, char **argv) {
                                               &steering,
                                               &targetSteering,
                                               &hasError,
-                                              &gamepadDevice]() {
-                struct timeval timeout {};
-                fd_set setOfFiledescriptorsToReadFrom{};
+                                              &manager,
+                                              &map]() {
 
                 while (!hasError) {
                     // Define timeout for select system call. The timeval struct must be
                     // reinitialized for every select call as it might be modified containing
                     // the actual time slept.
-                    timeout.tv_sec  = 0;
-                    timeout.tv_usec = 20 * 1000; // Check for new data with 50Hz.
 
-                    FD_ZERO(&setOfFiledescriptorsToReadFrom);
-                    FD_SET(gamepadDevice, &setOfFiledescriptorsToReadFrom);
-                    ::select(gamepadDevice + 1, &setOfFiledescriptorsToReadFrom, nullptr, nullptr, &timeout);
-
-                    if (FD_ISSET(gamepadDevice, &setOfFiledescriptorsToReadFrom)) {
+                    if (true) {
                         std::lock_guard<std::mutex> lck(valuesMutex);
 
-                        struct js_event js;
-                        while (::read(gamepadDevice, &js, sizeof(struct js_event)) > 0) {
+                        while (!hasError) {
+                          manager.Update();
                             float percent{0};
-                            switch (js.type & ~JS_EVENT_INIT) {
-                                case JS_EVENT_AXIS:
-                                {
-                                    if (AXIS_LEFTRIGHT == js.number) { // LEFT ANALOG STICK
-                                        // this will return a percent value over the whole range
-                                        percent = static_cast<float>(js.value - MIN_AXES_VALUE)/static_cast<float>(MAX_AXES_VALUE-MIN_AXES_VALUE)*100.0f;
-
-                                        if (VERBOSE) {
-                                            if (percent > 49.95f && percent < 50.05f) {
-                                                std::cout << "[opendlv-device-gamepad]: Going straight." << std::endl;
-                                            }
-                                            else {
-                                                // this will return values in the range [0-100] for both a left or right turn (instead of [0-50] for left and [50-100] for right)
-                                                std::cout << "[opendlv-device-gamepad]: Turning "<< (js.value<0?"left":"right") << " at " << (js.value<0?(100.0f-2.0f*percent):(2.0f*percent-100.0f)) <<"%." << std::endl;
-                                            }
-                                        }
-
-                                        // map the steering from percentage to its range
-                                        steering = percent/100.0f*(STEERING_MAX-STEERING_MIN)+STEERING_MIN;
-                                        steering *= -1.0f;
-                                        // modify in steps of 0.25
-                                        steering = ::roundf(4.0f*steering)/4.0f;
-                                        
-                                        // Clamp value to avoid showing "-0" (just "0" looks better imo)
-                                        if (steering < 0.001f && steering >-0.001f) {
-                                            steering = 0;
-                                        }
-
-                                        if (STEERING_MAX_RATE > 0.0f) {
-                                            targetSteering = steering;
-                                        }
-                                    }
-                                    // no else-if as many of these events can occur simultaneously
-                                    if (AXIS_UPDOWN == js.number) { // RIGHT ANALOG STICK
-                                        // this will return a percent value over the whole range
-                                        percent = static_cast<float>(js.value-MIN_AXES_VALUE)/static_cast<float>(MAX_AXES_VALUE-MIN_AXES_VALUE)*100.0f;
-                                        // this will return values in the range [0-100] for both accelerating and braking (instead of [50-0] for accelerating and [50-100] for braking)
-                                        if (VERBOSE) {
-                                            std::cout << "[opendlv-device-gamepad]: " << (js.value<0?"Accelerating":"Braking") <<" at "<< (js.value<0?(100.0f-2.0f*percent):(2.0f*percent-100.0f)) << "%." << std::endl;
-                                        }
-
-                                        if (js.value < 0) {
-                                            // map the acceleration from percentage to its range
-                                            acceleration=(100.0f-2.0f*percent)/100.0f*(ACCELERATION_MAX-ACCELERATION_MIN)+ACCELERATION_MIN;
-                                        }
-                                        else {
-                                            // map the acceleration from percentage to its range
-                                            acceleration = (2.0f*percent-100.0f)/100.0f*(DECELERATION_MAX-DECELERATION_MIN);
-                                        }
-
-                                        // modify in steps of 0.25
-                                        acceleration = ::roundf(4.0f*acceleration)/4.0f;
-
-                                        // Clamp value to avoid showing "-0" (just "0" looks better imo)
-                                        if (acceleration < 0.001f && acceleration >-0.001f) {
-                                            acceleration = 0;
-                                        }
-                                    }
-                                    break;
-                                }
-                                case JS_EVENT_BUTTON:
-                                    break;
-                                case JS_EVENT_INIT:
-                                    break;
-                                default:
-                                    break;
-                            }
-                        }
-                        if (errno != EAGAIN) {
-                            std::cerr << "[opendlv-device-gamepad]: Error: " << errno << ": " << strerror(errno) << std::endl;
+                          if (map.GetBoolWasDown(ButtonLeft)) {
+                            percent++;
+                          }
+                          if (map.GetBoolWasDown(ButtonQuit)) {
                             hasError = true;
+                            break;
+                          }
                         }
                     }
                 }
@@ -276,7 +203,6 @@ int32_t main(int32_t argc, char **argv) {
                 gamepadReadingThread.join();
             }
 
-            ::close(gamepadDevice);
             retCode = 0;
         }
     }
