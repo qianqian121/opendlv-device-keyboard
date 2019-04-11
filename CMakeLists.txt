@@ -54,7 +54,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(X11)
 find_package(gainput)
-set(LIBRARIES Threads::Threads gainput X11)
+set(LIBRARIES Threads::Threads gainput X11 GL)
 
 ################################################################################
 # Extract cluon-msc from cluon-complete.hpp.

@@ -34,6 +34,9 @@
 #include <string>
 #include <thread>
 
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#include <GL/glx.h>
 #include <gainput/gainput.h>
 
 namespace {
@@ -42,6 +45,10 @@ enum Button
   ButtonLeft,
   ButtonQuit
 };
+
+const char* windowName = "Gainput basic sample";
+const int width = 800;
+const int height = 600;
 }
 
 int32_t main(int32_t argc, char **argv) {
@@ -84,6 +91,47 @@ int32_t main(int32_t argc, char **argv) {
         float const TS = 1.0f / FREQ;
 
       {
+        static int attributeListDbl[] = {      GLX_RGBA,      GLX_DOUBLEBUFFER, /*In case single buffering is not supported*/      GLX_RED_SIZE,   1,      GLX_GREEN_SIZE, 1,      GLX_BLUE_SIZE,  1,
+                                               None };
+
+        Display* xDisplay = XOpenDisplay(0);
+        if (xDisplay == 0)
+        {
+          std::cerr << "Cannot connect to X server." << std::endl;
+          return -1;
+        }
+
+        Window root = DefaultRootWindow(xDisplay);
+
+        XVisualInfo* vi = glXChooseVisual(xDisplay, DefaultScreen(xDisplay), attributeListDbl);
+        assert(vi);
+
+        GLXContext context = glXCreateContext(xDisplay, vi, 0, GL_TRUE);
+
+        Colormap cmap = XCreateColormap(xDisplay, root,                   vi->visual, AllocNone);
+
+        XSetWindowAttributes swa;
+        swa.colormap = cmap;
+        swa.event_mask = ExposureMask
+                         | KeyPressMask | KeyReleaseMask
+                         | PointerMotionMask | ButtonPressMask | ButtonReleaseMask;
+
+        Window xWindow = XCreateWindow(
+            xDisplay, root,
+            0, 0, width, height, 0,
+            CopyFromParent, InputOutput,
+            CopyFromParent, CWEventMask,
+            &swa
+        );
+
+        glXMakeCurrent(xDisplay, xWindow, context);
+
+        XSetWindowAttributes xattr;
+        xattr.override_redirect = False;
+        XChangeWindowAttributes(xDisplay, xWindow, CWOverrideRedirect, &xattr);
+
+        XMapWindow(xDisplay, xWindow);
+        XStoreName(xDisplay, xWindow, windowName);
 
         // Setup Gainput
         gainput::InputManager manager;
@@ -92,6 +140,8 @@ int32_t main(int32_t argc, char **argv) {
         gainput::InputMap map(manager);
         map.MapBool(ButtonLeft, keyboardId, gainput::KeyA);
         map.MapBool(ButtonQuit, keyboardId, gainput::KeyEscape);
+
+        manager.SetDisplaySize(width, height);
 
         std::mutex valuesMutex;
             float acceleration{0};
@@ -118,6 +168,7 @@ int32_t main(int32_t argc, char **argv) {
                                               &steering,
                                               &targetSteering,
                                               &hasError,
+                                              &xDisplay,
                                               &manager,
                                               &map]() {
 
@@ -131,14 +182,24 @@ int32_t main(int32_t argc, char **argv) {
 
                         while (!hasError) {
                           manager.Update();
+                          XEvent event;
+                          while (XPending(xDisplay))
+                          {
+                            XNextEvent(xDisplay, &event);
+                            manager.HandleEvent(event);
+                          }
                             float percent{0};
                           if (map.GetBoolWasDown(ButtonLeft)) {
                             percent++;
+                              std::cout << "<<<<<<<" << std::endl;
                           }
                           if (map.GetBoolWasDown(ButtonQuit)) {
                             hasError = true;
                             break;
                           }
+                          using namespace std::chrono_literals;
+
+                          std::this_thread::sleep_for(1ms);
                         }
                     }
                 }
