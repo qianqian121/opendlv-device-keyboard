@@ -80,6 +80,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}.cpp ${CMAKE_BINARY_DIR}/actuationrequestmessage.hpp)
 target_link_libraries(${PROJECT_NAME} ${LIBRARIES})
 
+add_executable(${PROJECT_NAME}-test ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}-test.cpp ${CMAKE_BINARY_DIR}/actuationrequestmessage.hpp)
+target_link_libraries(${PROJECT_NAME}-test ${LIBRARIES})
+
 ################################################################################
 # Install executable.
 install(TARGETS ${PROJECT_NAME} DESTINATION bin COMPONENT ${PROJECT_NAME})
