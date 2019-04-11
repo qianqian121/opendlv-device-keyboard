@@ -178,7 +178,6 @@ int32_t main(int32_t argc, char **argv) {
                     // the actual time slept.
 
                     if (true) {
-                        std::lock_guard<std::mutex> lck(valuesMutex);
 
                         while (!hasError) {
                           manager.Update();
@@ -189,6 +188,7 @@ int32_t main(int32_t argc, char **argv) {
                             manager.HandleEvent(event);
                           }
                             float percent{0};
+                        std::unique_lock<std::mutex> lck(valuesMutex);
                           if (map.GetBoolWasDown(ButtonLeft)) {
                             percent++;
                               std::cout << "<<<<<<<" << std::endl;
@@ -197,6 +197,7 @@ int32_t main(int32_t argc, char **argv) {
                             hasError = true;
                             break;
                           }
+                          lck.unlock();
                           using namespace std::chrono_literals;
 
                           std::this_thread::sleep_for(1ms);
